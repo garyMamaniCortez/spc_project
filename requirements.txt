@@ -1,9 +1,14 @@
 loguru
+matplotlib
 mkdocs
+numpy
+pandas
 pip
 pytest
 python-dotenv
 ruff
+seaborn
+tabulate
 tqdm
 typer
 -e .
