@@ -11,13 +11,7 @@
 - Ayelen Ortiz Robledo
 - Jhonny Gary Mamani Cortez
 
-<p align="center">
-  <img 
-    src="https://github.com/user-attachments/assets/0aae1e61-9c14-4145-88e0-e2a8c1d69be2" 
-    alt="Grupo 3" 
-    width="352"
-  />
-</p>
+
 Salary Prediction Clasification project
 
 ## Project Organization
