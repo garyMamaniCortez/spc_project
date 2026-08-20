@@ -11,4 +11,6 @@ seaborn
 tabulate
 tqdm
 typer
+mlflow
+dvc
 -e .
