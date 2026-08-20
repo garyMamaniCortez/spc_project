@@ -7,8 +7,8 @@
 ## 👥 Integrantes — Grupo 3
 
 - Diego Alvarado García
-- Erick Quiroz Gil
-- Sebastian Marín Ovando
+- Erick Alejandro Quiroz Gil
+- Sebastian Gustavo Marín Ovando
 - Ayelen Ortiz Robledo
 - Jhonny Gary Mamani Cortez
 
