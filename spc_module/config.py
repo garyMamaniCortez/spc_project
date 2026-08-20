@@ -21,6 +21,18 @@ MODELS_DIR = PROJ_ROOT / "models"
 REPORTS_DIR = PROJ_ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"
 
+# --- Salary dataset (Adult Census Income) specific configuration ---
+TARGET_COLUMN = "salary"
+POSITIVE_LABEL = ">50K"
+
+# fnlwgt: census sampling weight, not a predictive feature.
+# education: redundant with the already numeric/ordinal education-num.
+COLUMNS_TO_DROP = ["fnlwgt", "education"]
+
+# Columns whose raw "?" values (parsed as NaN by CSVDataLoader) are
+# imputed with their mode.
+CATEGORICAL_COLUMNS_TO_IMPUTE = ["workclass", "occupation", "native-country"]
+
 # If tqdm is installed, configure loguru with tqdm.write
 # https://github.com/Delgan/loguru/issues/135
 try:
