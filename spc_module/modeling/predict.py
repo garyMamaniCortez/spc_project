@@ -1,10 +1,19 @@
+"""
+predict.py
+----------
+Carga el modelo entrenado (junto con el scaler usado en train.py),
+predice sobre un set de features y guarda las predicciones en CSV.
+"""
+
+import pickle
 from pathlib import Path
 
 from loguru import logger
-from tqdm import tqdm
+import pandas as pd
 import typer
 
 from spc_module.config import MODELS_DIR, PROCESSED_DATA_DIR
+from spc_module.eda.loader import CSVDataLoader
 
 app = typer.Typer()
 
@@ -17,13 +26,23 @@ def main(
     predictions_path: Path = PROCESSED_DATA_DIR / "test_predictions.csv",
     # -----------------------------------------
 ):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Performing inference for model...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Inference complete.")
-    # -----------------------------------------
+    logger.info(f"Cargando modelo y scaler desde: {model_path}")
+    with open(model_path, "rb") as f:
+        bundle = pickle.load(f)
+    model = bundle["model"]
+    scaler = bundle["scaler"]
+
+    logger.info(f"Cargando features desde: {features_path}")
+    X = CSVDataLoader(features_path).load()
+    X_scaled = scaler.transform(X)
+
+    logger.info("Realizando predicciones...")
+    predictions = model.predict(X_scaled)
+
+    predictions_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"prediction": predictions}).to_csv(predictions_path, index=False)
+
+    logger.success(f"Predicciones guardadas en: {predictions_path}")
 
 
 if __name__ == "__main__":
