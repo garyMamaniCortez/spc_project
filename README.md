@@ -3,7 +3,21 @@
 <a target="_blank" href="https://cookiecutter-data-science.drivendata.org/">
     <img src="https://img.shields.io/badge/CCDS-Project%20template-328F97?logo=cookiecutter" />
 </a>
+## 👥 Integrantes — Grupo 3
 
+- Diego Alvarado García
+- Erick Quiroz Gil
+- Sebastian Marín Ovando
+- Ayelen Ortiz Robledo
+- Jhonny Gary Mamani Cortez
+
+<p align="center">
+  <img 
+    src="https://github.com/user-attachments/assets/0aae1e61-9c14-4145-88e0-e2a8c1d69be2" 
+    alt="Grupo 3" 
+    width="352"
+  />
+</p>
 Salary Prediction Clasification project
 
 ## Project Organization
