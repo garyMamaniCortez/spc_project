@@ -1,0 +1,5 @@
+outs:
+- md5: de8c339152bd5c81a2201ce5b188fde8
+  size: 69536
+  hash: md5
+  path: labels.csv
