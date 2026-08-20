@@ -54,9 +54,20 @@ Salary Prediction Clasification project
     │
     ├── config.py               <- Store useful variables and configuration
     │
-    ├── dataset.py              <- Scripts to download or generate data
+    ├── dataset.py              <- Limpia el raw salary.csv (drop columnas,
+    │                              imputación por moda, duplicados) -> data/interim
     │
-    ├── features.py             <- Code to create features for modeling
+    ├── features.py             <- Construye la tabla minable: target binario +
+    │                              one-hot encoding + split train/test -> data/processed
+    │
+    ├── preprocessing/          <- Tabla minable (SOLID): pasos reutilizables
+    │   ├── __init__.py
+    │   ├── cleaning.py         <- CleaningStep (Strategy) + CleaningPipeline
+    │   ├── encoding.py         <- OneHotCategoricalEncoder + BinaryTargetEncoder
+    │   ├── splitting.py        <- DatasetSplitter (train/test estratificado)
+    │   └── builder.py          <- MineableTableBuilder (orquestador, DIP)
+    │
+    ├── eda/                    <- Análisis exploratorio (loader, quality, profiler...)
     │
     ├── modeling                
     │   ├── __init__.py 
@@ -65,6 +76,28 @@ Salary Prediction Clasification project
     │
     └── plots.py                <- Code to create visualizations
 ```
+
+## Tabla minable (dataset `salary.csv`, Adult Census Income)
+
+La tarea es de **clasificación binaria**: predecir si una persona gana
+`>50K` o `<=50K` al año. El pipeline para generar la tabla minable
+sigue el patrón cookiecutter (`raw` → `interim` → `processed`) y
+aplica principios SOLID (cada paso es una clase de responsabilidad
+única, inyectada por dependencia en `MineableTableBuilder`):
+
+```bash
+python spc_module/dataset.py      # raw/salary.csv -> interim/salary_clean.csv
+python spc_module/features.py     # interim/salary_clean.csv -> processed/{features,labels,test_features,test_labels}.csv
+```
+
+Decisiones de diseño aplicadas:
+
+- **`fnlwgt`** se elimina: es un peso muestral censal, no una variable predictiva.
+- **`education`** se elimina: es redundante con `education-num` (ya numérica/ordinal).
+- **Valores `"?"`** en `workclass`, `occupation` y `native-country` se imputan con la **moda** de cada columna.
+- **`salary`** se binariza a `0`/`1` (`1` = `>50K`).
+- Variables categóricas restantes se codifican con **one-hot encoding** (`drop_first=True` por defecto, para evitar la trampa de la variable ficticia en modelos lineales; configurable vía CLI).
+- Split **train/test estratificado** (80/20 por defecto) para preservar el desbalance de clases (~75% / 25%).
 
 --------
 
