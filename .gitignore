@@ -6,6 +6,7 @@
 
 # Mlflow
 /mlruns
+mlflow.db
 
 # Models
 models/
