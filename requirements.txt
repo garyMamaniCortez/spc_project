@@ -13,5 +13,6 @@ tabulate
 tqdm
 typer
 mlflow
+xgboost
 dvc
 -e .
