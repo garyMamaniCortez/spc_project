@@ -17,7 +17,7 @@ import tempfile
 
 from loguru import logger
 import mlflow
-import mlflow.sklearn
+import mlflow.tensorflow
 import mlflow.xgboost
 import typer
 
@@ -91,15 +91,7 @@ def _train_and_log_model(
         if key == "xgboost":
             mlflow.xgboost.log_model(model.model, name="model")
         else:
-            # MLPClassifier stores internal objects (e.g. AdamOptimizer)
-            # that MLflow's default skops serializer does not trust by
-            # default; pickle is safe here since we fully control what
-            # gets logged (our own freshly trained model).
-            mlflow.sklearn.log_model(
-                model.model,
-                name="model",
-                serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_PICKLE,
-            )
+            mlflow.tensorflow.log_model(model.model, name="model")
 
         model_path = models_dir / f"model_{key}.pkl"
         with open(model_path, "wb") as f:

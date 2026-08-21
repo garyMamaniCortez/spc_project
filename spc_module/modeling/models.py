@@ -15,9 +15,16 @@ Define los modelos de clasificación usando POO.
   problema de clasificación binaria.
 """
 
-from abc import ABC, abstractmethod
+from __future__ import annotations
 
-from sklearn.neural_network import MLPClassifier
+from abc import ABC, abstractmethod
+import os
+import tempfile
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # silencia logs de bajo nivel de TF
+
+import numpy as np
+from tensorflow import keras
 from xgboost import XGBClassifier
 
 
@@ -40,9 +47,10 @@ class BaseModel(ABC):
         """Genera predicciones sobre nuevos datos."""
         raise NotImplementedError
 
+    @abstractmethod
     def get_params(self) -> dict:
-        """Hiperparámetros del estimador subyacente (para logging, p. ej. MLflow)."""
-        return self.model.get_params()
+        """Hiperparámetros del modelo (para logging, p. ej. MLflow)."""
+        raise NotImplementedError
 
     def __repr__(self):
         estado = "entrenado" if self.is_trained else "sin entrenar"
@@ -50,15 +58,14 @@ class BaseModel(ABC):
 
 
 class NeuralNetworkModel(BaseModel):
-    """Red neuronal (Perceptrón Multicapa) para clasificar el salario
+    """Red neuronal profunda (Keras/TensorFlow) para clasificar el salario
     (<=50K o >50K).
 
-    Arquitectura: 4 capas ocultas (256 -> 128 -> 64 -> 32 neuronas) con
-    activación ReLU, optimizador Adam, regularización L2 (``alpha``) y
-    early stopping para evitar sobreajuste.
-
-    Nota: requiere datos escalados (StandardScaler) para converger bien,
-    ya que las neuronas son sensibles a la magnitud de las variables.
+    Arquitectura, por cada tamaño en ``hidden_layer_sizes``
+    (256 -> 128 -> 64 -> 32 por defecto):
+        Dense -> BatchNormalization -> Activation(ReLU) -> Dropout(0.3)
+    seguida de una capa de salida ``Dense(1, activation="sigmoid")`` para
+    clasificación binaria.
     """
 
     name = "Red Neuronal (MLP)"
@@ -66,37 +73,140 @@ class NeuralNetworkModel(BaseModel):
     def __init__(
         self,
         hidden_layer_sizes: tuple = (256, 128, 64, 32),
+        dropout_rate: float = 0.4,
         activation: str = "relu",
-        solver: str = "adam",
-        alpha: float = 1e-4,
-        learning_rate_init: float = 1e-3,
+        l2_reg: float = 1e-4,
+        learning_rate_init: float = 1e-4,
         max_iter: int = 500,
+        batch_size: int = 32,
         early_stopping: bool = True,
         n_iter_no_change: int = 15,
+        validation_split: float = 0.2,
         random_state: int = 42,
     ):
         super().__init__()
-        self.model = MLPClassifier(
-            hidden_layer_sizes=hidden_layer_sizes,
-            activation=activation,
-            solver=solver,
-            alpha=alpha,
-            learning_rate_init=learning_rate_init,
-            max_iter=max_iter,
-            n_iter_no_change=n_iter_no_change,
-            random_state=random_state,
-            early_stopping=early_stopping,
-        )
+        self.hidden_layer_sizes = hidden_layer_sizes
+        self.dropout_rate = dropout_rate
+        self.activation = activation
+        self.l2_reg = l2_reg
+        self.learning_rate_init = learning_rate_init
+        self.max_iter = max_iter
+        self.batch_size = batch_size
+        self.early_stopping = early_stopping
+        self.n_iter_no_change = n_iter_no_change
+        self.validation_split = validation_split
+        self.random_state = random_state
+        self.history_ = None
 
-    def fit(self, X_train_scaled, y_train):
-        self.model.fit(X_train_scaled, y_train)
+    def _build(self, input_dim: int) -> keras.Model:
+        keras.utils.set_random_seed(self.random_state)
+        regularizer = keras.regularizers.l2(self.l2_reg) if self.l2_reg else None
+ 
+        network = keras.Sequential(name="mlp_dropout_batchnorm")
+        network.add(keras.layers.Input(shape=(input_dim,)))
+        for i, units in enumerate(self.hidden_layer_sizes, start=1):
+            network.add(
+                keras.layers.Dense(units, kernel_regularizer=regularizer, name=f"dense_{i}")
+            )
+            network.add(keras.layers.BatchNormalization(name=f"batch_norm_{i}"))
+            network.add(keras.layers.Activation(self.activation, name=f"{self.activation}_{i}"))
+            network.add(keras.layers.Dropout(self.dropout_rate, name=f"dropout_{i}"))
+        network.add(keras.layers.Dense(1, activation="sigmoid", name="output"))
+ 
+        network.compile(
+            optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate_init),
+            loss="binary_crossentropy",
+            metrics=["accuracy"],
+        )
+        return network
+
+    def fit(self, X_train, y_train):
+        x_array = np.asarray(X_train, dtype="float32")
+        y_array = np.asarray(y_train, dtype="float32")
+        self.model = self._build(input_dim=x_array.shape[1])
+ 
+        callbacks = []
+        if self.early_stopping:
+            callbacks.append(
+                keras.callbacks.EarlyStopping(
+                    monitor="val_loss",
+                    patience=self.n_iter_no_change,
+                    restore_best_weights=True,
+                )
+            )
+ 
+        self.history_ = self.model.fit(
+            x_array,
+            y_array,
+            epochs=self.max_iter,
+            batch_size=self.batch_size,
+            validation_split=self.validation_split if self.early_stopping else 0.0,
+            callbacks=callbacks,
+            verbose=0,
+        )
         self.is_trained = True
         return self
 
-    def predict(self, X_test_scaled):
-        return self.model.predict(X_test_scaled)
+    def predict(self, X_test):
+        x_array = np.asarray(X_test, dtype="float32")
+        probabilities = self.model.predict(x_array, verbose=0).ravel()
+        return (probabilities >= 0.5).astype(int)
 
-
+    def get_params(self) -> dict:
+        return {
+            "hidden_layer_sizes": self.hidden_layer_sizes,
+            "dropout_rate": self.dropout_rate,
+            "activation": self.activation,
+            "l2_reg": self.l2_reg,
+            "learning_rate_init": self.learning_rate_init,
+            "max_iter": self.max_iter,
+            "batch_size": self.batch_size,
+            "early_stopping": self.early_stopping,
+            "n_iter_no_change": self.n_iter_no_change,
+            "validation_split": self.validation_split,
+            "random_state": self.random_state,
+        }
+    
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        keras_model = state.pop("model")
+        state.pop("history_", None)  # el historial de entrenamiento no se persiste
+        state["_model_bytes"] = self._keras_model_to_bytes(keras_model)
+        return state
+ 
+    def __setstate__(self, state: dict) -> None:
+        model_bytes = state.pop("_model_bytes", None)
+        self.__dict__.update(state)
+        self.history_ = None
+        self.model = self._keras_model_from_bytes(model_bytes)
+ 
+    @staticmethod
+    def _keras_model_to_bytes(keras_model: keras.Model | None) -> bytes | None:
+        if keras_model is None:
+            return None
+        fd, tmp_path = tempfile.mkstemp(suffix=".keras")
+        os.close(fd)
+        try:
+            keras_model.save(tmp_path)
+            with open(tmp_path, "rb") as f:
+                return f.read()
+        finally:
+            os.remove(tmp_path)
+ 
+    @staticmethod
+    def _keras_model_from_bytes(model_bytes: bytes | None) -> keras.Model | None:
+        if model_bytes is None:
+            return None
+        fd, tmp_path = tempfile.mkstemp(suffix=".keras")
+        os.close(fd)
+        try:
+            with open(tmp_path, "wb") as f:
+                f.write(model_bytes)
+            return keras.models.load_model(tmp_path)
+        finally:
+            os.remove(tmp_path)
+ 
+ 
 class XGBoostModel(BaseModel):
     """Gradient boosting (XGBoost) para clasificar el salario (<=50K o >50K).
 
@@ -137,3 +247,6 @@ class XGBoostModel(BaseModel):
 
     def predict(self, X_test):
         return self.model.predict(X_test)
+
+    def get_params(self) -> dict:
+        return self.model.get_params()
