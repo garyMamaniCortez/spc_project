@@ -64,6 +64,8 @@ Salary Prediction Clasification project
     │   ├── __init__.py
     │   ├── cleaning.py         <- CleaningStep (Strategy) + CleaningPipeline
     │   ├── encoding.py         <- OneHotCategoricalEncoder + BinaryTargetEncoder
+    │   ├── scaling.py          <- StandardNumericalScaler (solo columnas numéricas,
+    │   │                          nunca las dummy de one-hot)
     │   ├── splitting.py        <- DatasetSplitter (train/test estratificado)
     │   └── builder.py          <- MineableTableBuilder (orquestador, DIP)
     │
@@ -71,8 +73,10 @@ Salary Prediction Clasification project
     │
     ├── modeling                
     │   ├── __init__.py 
+    │   ├── models.py           <- BaseModel (ABC) + NeuralNetworkModel (MLP) + XGBoostModel
+    │   ├── evaluator.py        <- Métricas, comparación y matrices de confusión
     │   ├── predict.py          <- Code to run model inference with trained models          
-    │   └── train.py            <- Code to train models
+    │   └── train.py            <- Entrena MLP + XGBoost, registra todo en MLflow
     │
     └── plots.py                <- Code to create visualizations
 ```
@@ -98,6 +102,37 @@ Decisiones de diseño aplicadas:
 - **`salary`** se binariza a `0`/`1` (`1` = `>50K`).
 - Variables categóricas restantes se codifican con **one-hot encoding** (`drop_first=True` por defecto, para evitar la trampa de la variable ficticia en modelos lineales; configurable vía CLI).
 - Split **train/test estratificado** (80/20 por defecto) para preservar el desbalance de clases (~75% / 25%).
+
+## Entrenamiento de modelos y MLflow
+
+```bash
+python spc_module/modeling/train.py      # entrena MLP + XGBoost, registra todo en MLflow
+python spc_module/modeling/predict.py    # predice con el mejor modelo (models/model.pkl)
+```
+
+- **Escalado correcto:** `StandardNumericalScaler` estandariza únicamente las
+  columnas numéricas continuas (`age`, `education-num`, `capital-gain`,
+  `capital-loss`, `hours-per-week`); las columnas dummy generadas por el
+  one-hot encoding **nunca** se reescalan (bugfix respecto a una versión
+  previa que aplicaba `StandardScaler` sobre toda la tabla, incluidas las
+  dummies).
+- **Modelos** (`spc_module/modeling/models.py`, contrato común `BaseModel`):
+  - `NeuralNetworkModel`: MLP con 4 capas ocultas (256‑128‑64‑32 neuronas).
+  - `XGBoostModel`: gradient boosting (`XGBClassifier`).
+  - Añadir un modelo nuevo solo requiere implementar `BaseModel` y agregarlo
+    a `MODEL_REGISTRY` en `train.py` (Open/Closed Principle).
+- **MLflow:** cada modelo se entrena dentro de su propio *run* (parámetros,
+  métricas, matriz de confusión y el modelo quedan versionados). El backend
+  de tracking es SQLite local (`mlflow.db` en la raíz del proyecto). Para
+  explorar los experimentos:
+
+  ```bash
+  mlflow ui --backend-store-uri sqlite:///mlflow.db
+  ```
+
+  Y abre `http://127.0.0.1:5000` en el navegador.
+- Al final, `train.py` compara los modelos por F1-score y copia el mejor a
+  `models/model.pkl`, que es el que usa `predict.py` por defecto.
 
 --------
 
