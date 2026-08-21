@@ -2,23 +2,112 @@
 train.py
 --------
 Carga las tablas ya procesadas (features/labels de train y test),
-escala, entrena la red neuronal, evalúa y guarda el modelo entrenado
-para que predict.py pueda usarlo después.
+escala las columnas numéricas continuas,
+entrena varios modelos (red neuronal MLP y XGBoost), evalúa cada uno,
+registra todo en MLflow (parámetros, métricas, artefactos y el modelo)
+y guarda los modelos entrenados en disco para que ``predict.py`` los
+use después.
 """
 
-import pickle
+from __future__ import annotations
+
 from pathlib import Path
+import pickle
+import tempfile
 
 from loguru import logger
-from sklearn.preprocessing import StandardScaler
+import mlflow
+import mlflow.sklearn
+import mlflow.xgboost
 import typer
 
-from spc_module.config import MODELS_DIR, PROCESSED_DATA_DIR
+from spc_module.config import (
+    MLFLOW_EXPERIMENT_NAME,
+    MLFLOW_TRACKING_URI,
+    MODELS_DIR,
+    NUMERICAL_COLUMNS,
+    PROCESSED_DATA_DIR,
+    REPORTS_DIR,
+)
 from spc_module.eda.loader import CSVDataLoader
 from spc_module.modeling.evaluator import Evaluator
-from spc_module.modeling.models import NeuralNetworkModel
+from spc_module.modeling.models import BaseModel, NeuralNetworkModel, XGBoostModel
+from spc_module.preprocessing.scaling import StandardNumericalScaler
 
 app = typer.Typer()
+
+# Registro de modelos a entrenar y comparar. Añadir un modelo nuevo al
+# proyecto es tan simple como agregar una entrada aquí (Open/Closed
+# Principle): el resto de train.py no necesita cambiar.
+MODEL_REGISTRY: dict[str, type[BaseModel]] = {
+    "mlp": NeuralNetworkModel,
+    "xgboost": XGBoostModel,
+}
+
+
+def _loggable_params(params: dict) -> dict[str, str]:
+    """Convierte hiperparámetros a un formato seguro para ``mlflow.log_params``."""
+    return {k: str(v) for k, v in params.items() if v is not None}
+
+
+def _train_and_log_model(
+    key: str,
+    model: BaseModel,
+    x_train,
+    y_train,
+    x_test,
+    y_test,
+    evaluator: Evaluator,
+    models_dir: Path,
+    scaler: StandardNumericalScaler,
+) -> dict:
+    """Entrena un modelo, lo evalúa y registra todo en un run de MLflow."""
+    with mlflow.start_run(run_name=model.name):
+        mlflow.set_tag("model_key", key)
+        mlflow.log_params(_loggable_params(model.get_params()))
+
+        logger.info(f"Entrenando: {model.name}...")
+        model.fit(x_train, y_train)
+        logger.success(f"Entrenamiento terminado: {model}")
+
+        y_pred = model.predict(x_test)
+        metrics = evaluator.evaluate(model.name, y_test, y_pred)
+        evaluator.print_summary(model.name)
+
+        mlflow.log_metrics(
+            {
+                "accuracy": metrics["accuracy"],
+                "precision": metrics["precision"],
+                "recall": metrics["recall"],
+                "f1_score": metrics["f1_score"],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cm_path = Path(tmp_dir) / f"confusion_matrix_{key}.png"
+            evaluator.plot_single_confusion_matrix(model.name, str(cm_path))
+            mlflow.log_artifact(str(cm_path), artifact_path="figures")
+
+        if key == "xgboost":
+            mlflow.xgboost.log_model(model.model, name="model")
+        else:
+            # MLPClassifier stores internal objects (e.g. AdamOptimizer)
+            # that MLflow's default skops serializer does not trust by
+            # default; pickle is safe here since we fully control what
+            # gets logged (our own freshly trained model).
+            mlflow.sklearn.log_model(
+                model.model,
+                name="model",
+                serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_PICKLE,
+            )
+
+        model_path = models_dir / f"model_{key}.pkl"
+        with open(model_path, "wb") as f:
+            pickle.dump({"model": model, "scaler": scaler}, f)
+        mlflow.log_artifact(str(model_path), artifact_path="bundle")
+        logger.success(f"Modelo '{key}' guardado en: {model_path}")
+
+        return metrics
 
 
 @app.command()
@@ -29,40 +118,66 @@ def main(
     test_features_path: Path = PROCESSED_DATA_DIR / "test_features.csv",
     test_labels_path: Path = PROCESSED_DATA_DIR / "test_labels.csv",
     model_path: Path = MODELS_DIR / "model.pkl",
-    figures_path: Path = PROCESSED_DATA_DIR.parent.parent / "reports" / "figures" / "confusion_matrices.png",
+    figures_path: Path = REPORTS_DIR / "figures" / "confusion_matrices.png",
     # -----------------------------------------
+    models: str = typer.Option(
+        "mlp,xgboost",
+        help="Modelos a entrenar, separados por coma (mlp,xgboost).",
+    ),
+    experiment_name: str = MLFLOW_EXPERIMENT_NAME,
+    tracking_uri: str = MLFLOW_TRACKING_URI,
 ):
+    """Entrena, evalúa y registra en MLflow todos los modelos configurados."""
+    model_keys = [m.strip() for m in models.split(",") if m.strip()]
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment_name)
+    logger.info(f"MLflow tracking URI: {tracking_uri} | experimento: {experiment_name}")
+
     logger.info("Cargando datos ya procesados...")
-    X_train = CSVDataLoader(features_path).load()
+    x_train = CSVDataLoader(features_path).load()
     y_train = CSVDataLoader(labels_path).load().iloc[:, 0]  # asume una sola columna de etiqueta
-    X_test = CSVDataLoader(test_features_path).load()
+    x_test = CSVDataLoader(test_features_path).load()
     y_test = CSVDataLoader(test_labels_path).load().iloc[:, 0]
 
-    logger.info("Escalando features (StandardScaler)...")
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    # --- Escalado correcto: SOLO columnas numéricas continuas ---
+    scaler = StandardNumericalScaler(columns=NUMERICAL_COLUMNS)
+    x_train_scaled = scaler.fit_transform(x_train)
+    x_test_scaled = scaler.transform(x_test)
 
-    logger.info("Entrenando modelo...")
-    model = NeuralNetworkModel()
-    model.fit(X_train_scaled, y_train)
-    logger.success(f"Entrenamiento terminado: {model}")
-
-    logger.info("Evaluando modelo sobre el set de prueba...")
-    y_pred = model.predict(X_test_scaled)
     evaluator = Evaluator()
-    evaluator.evaluate(model.name, y_test, y_pred)
-    evaluator.print_summary(model.name)
+    models_dir = MODELS_DIR
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    results: dict[str, dict] = {}
+    for key in model_keys:
+        model_cls = MODEL_REGISTRY[key]
+        metrics = _train_and_log_model(
+            key=key,
+            model=model_cls(),
+            x_train=x_train_scaled,
+            y_train=y_train,
+            x_test=x_test_scaled,
+            y_test=y_test,
+            evaluator=evaluator,
+            models_dir=models_dir,
+            scaler=scaler,
+        )
+        results[key] = metrics
+
     evaluator.compare()
 
     figures_path.parent.mkdir(parents=True, exist_ok=True)
     evaluator.plot_confusion_matrices(str(figures_path))
-    logger.info(f"Matriz de confusión guardada en: {figures_path}")
+    logger.info(f"Matrices de confusión (comparativa) guardadas en: {figures_path}")
 
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(model_path, "wb") as f:
-        pickle.dump({"model": model, "scaler": scaler}, f)
-    logger.success(f"Modelo guardado en: {model_path}")
+    best_key = max(results, key=lambda k: results[k]["f1_score"])
+    best_model_path = models_dir / f"model_{best_key}.pkl"
+    model_path.write_bytes(best_model_path.read_bytes())
+    logger.success(
+        f"Mejor modelo por F1-score: '{best_key}' "
+        f"(f1={results[best_key]['f1_score']:.4f}) -> copiado a {model_path}"
+    )
+    logger.info(f"Revisa 'mlflow ui --backend-store-uri {tracking_uri}' para ver los runs.")
 
 
 if __name__ == "__main__":
