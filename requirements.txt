@@ -14,5 +14,6 @@ tqdm
 typer
 mlflow
 xgboost
+tensorflow
 dvc
 -e .
