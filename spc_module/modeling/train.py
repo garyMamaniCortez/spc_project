@@ -3,10 +3,11 @@ train.py
 --------
 Carga las tablas ya procesadas (features/labels de train y test),
 escala las columnas numéricas continuas,
-entrena varios modelos (red neuronal MLP y XGBoost), evalúa cada uno,
-registra todo en MLflow (parámetros, métricas, artefactos y el modelo)
-y guarda los modelos entrenados en disco para que ``predict.py`` los
-use después.
+entrena los modelos baseline (red neuronal MLP y XGBoost),
+ejecuta tuning de hiperparámetros sobre train para ambos modelos,
+evalúa cada modelo (baseline vs tuned) en el conjunto de test,
+registra todo en MLflow (parámetros, métricas, artefactos y modelos)
+y guarda los modelos en disco para que ``predict.py`` los use después.
 """
 
 from __future__ import annotations
@@ -32,13 +33,11 @@ from spc_module.config import (
 from spc_module.eda.loader import CSVDataLoader
 from spc_module.modeling.evaluator import Evaluator
 from spc_module.modeling.models import BaseModel, NeuralNetworkModel, XGBoostModel
+from spc_module.modeling.tuning import NeuralNetworkTuner, XGBoostTuner
 from spc_module.preprocessing.scaling import StandardNumericalScaler
 
 app = typer.Typer()
 
-# Registro de modelos a entrenar y comparar. Añadir un modelo nuevo al
-# proyecto es tan simple como agregar una entrada aquí (Open/Closed
-# Principle): el resto de train.py no necesita cambiar.
 MODEL_REGISTRY: dict[str, type[BaseModel]] = {
     "mlp": NeuralNetworkModel,
     "xgboost": XGBoostModel,
@@ -50,29 +49,26 @@ def _loggable_params(params: dict) -> dict[str, str]:
     return {k: str(v) for k, v in params.items() if v is not None}
 
 
-def _train_and_log_model(
-    key: str,
+def _log_and_save_model(
+    run_name: str,
+    model_key: str,
+    version_tag: str,
     model: BaseModel,
-    x_train,
-    y_train,
     x_test,
     y_test,
     evaluator: Evaluator,
     models_dir: Path,
     scaler: StandardNumericalScaler,
 ) -> dict:
-    """Entrena un modelo, lo evalúa y registra todo en un run de MLflow."""
-    with mlflow.start_run(run_name=model.name):
-        mlflow.set_tag("model_key", key)
+    """Evalúa un modelo previamente entrenado, guarda sus métricas/artefactos y lo registra en MLflow."""
+    with mlflow.start_run(run_name=run_name):
+        mlflow.set_tag("model_key", model_key)
+        mlflow.set_tag("version", version_tag)
         mlflow.log_params(_loggable_params(model.get_params()))
 
-        logger.info(f"Entrenando: {model.name}...")
-        model.fit(x_train, y_train)
-        logger.success(f"Entrenamiento terminado: {model}")
-
         y_pred = model.predict(x_test)
-        metrics = evaluator.evaluate(model.name, y_test, y_pred)
-        evaluator.print_summary(model.name)
+        metrics = evaluator.evaluate(run_name, y_test, y_pred)
+        evaluator.print_summary(run_name)
 
         mlflow.log_metrics(
             {
@@ -84,42 +80,46 @@ def _train_and_log_model(
         )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            cm_path = Path(tmp_dir) / f"confusion_matrix_{key}.png"
-            evaluator.plot_single_confusion_matrix(model.name, str(cm_path))
+            safe_filename = run_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
+            cm_path = Path(tmp_dir) / f"confusion_matrix_{safe_filename}.png"
+            evaluator.plot_single_confusion_matrix(run_name, str(cm_path))
             mlflow.log_artifact(str(cm_path), artifact_path="figures")
 
-        if key == "xgboost":
+        if model_key == "xgboost":
             mlflow.xgboost.log_model(model.model, name="model")
         else:
             mlflow.tensorflow.log_model(model.model, name="model")
 
-        model_path = models_dir / f"model_{key}.pkl"
+        model_filename = f"model_{model_key}_{version_tag}.pkl"
+        model_path = models_dir / model_filename
         with open(model_path, "wb") as f:
             pickle.dump({"model": model, "scaler": scaler}, f)
         mlflow.log_artifact(str(model_path), artifact_path="bundle")
-        logger.success(f"Modelo '{key}' guardado en: {model_path}")
+        logger.success(f"Modelo '{run_name}' guardado en: {model_path}")
 
         return metrics
 
 
 @app.command()
 def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
     features_path: Path = PROCESSED_DATA_DIR / "features.csv",
     labels_path: Path = PROCESSED_DATA_DIR / "labels.csv",
     test_features_path: Path = PROCESSED_DATA_DIR / "test_features.csv",
     test_labels_path: Path = PROCESSED_DATA_DIR / "test_labels.csv",
     model_path: Path = MODELS_DIR / "model.pkl",
     figures_path: Path = REPORTS_DIR / "figures" / "confusion_matrices.png",
-    # -----------------------------------------
     models: str = typer.Option(
         "mlp,xgboost",
         help="Modelos a entrenar, separados por coma (mlp,xgboost).",
     ),
+    do_tuning: bool = typer.Option(
+        True,
+        help="Si es True, ejecuta tuning de hiperparámetros además de los baseline.",
+    ),
     experiment_name: str = MLFLOW_EXPERIMENT_NAME,
     tracking_uri: str = MLFLOW_TRACKING_URI,
 ):
-    """Entrena, evalúa y registra en MLflow todos los modelos configurados."""
+    """Entrena modelos baseline y tuned, los evalúa en test y los registra en MLflow."""
     model_keys = [m.strip() for m in models.split(",") if m.strip()]
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
@@ -127,7 +127,7 @@ def main(
 
     logger.info("Cargando datos ya procesados...")
     x_train = CSVDataLoader(features_path).load()
-    y_train = CSVDataLoader(labels_path).load().iloc[:, 0]  # asume una sola columna de etiqueta
+    y_train = CSVDataLoader(labels_path).load().iloc[:, 0]
     x_test = CSVDataLoader(test_features_path).load()
     y_test = CSVDataLoader(test_labels_path).load().iloc[:, 0]
 
@@ -141,20 +141,55 @@ def main(
     models_dir.mkdir(parents=True, exist_ok=True)
 
     results: dict[str, dict] = {}
+    saved_paths: dict[str, Path] = {}
+
     for key in model_keys:
+        # 1. ENTRENAR Y LOGUEAR BASELINE
+        baseline_name = f"{'XGBoost' if key == 'xgboost' else 'Red Neuronal (MLP)'} (Baseline)"
+        logger.info(f"Entrenando baseline: {baseline_name}...")
         model_cls = MODEL_REGISTRY[key]
-        metrics = _train_and_log_model(
-            key=key,
-            model=model_cls(),
-            x_train=x_train_scaled,
-            y_train=y_train,
+        baseline_model = model_cls()
+        baseline_model.fit(x_train_scaled, y_train)
+
+        metrics_baseline = _log_and_save_model(
+            run_name=baseline_name,
+            model_key=key,
+            version_tag="baseline",
+            model=baseline_model,
             x_test=x_test_scaled,
             y_test=y_test,
             evaluator=evaluator,
             models_dir=models_dir,
             scaler=scaler,
         )
-        results[key] = metrics
+        results[baseline_name] = metrics_baseline
+        saved_paths[baseline_name] = models_dir / f"model_{key}_baseline.pkl"
+
+        # 2. TUNING DE HIPERPARÁMETROS
+        if do_tuning:
+            tuned_name = f"{'XGBoost' if key == 'xgboost' else 'Red Neuronal (MLP)'} (Tuned)"
+            logger.info(f"Iniciando tuning para: {tuned_name}...")
+            if key == "xgboost":
+                tuner = XGBoostTuner(n_iter=8, cv=3, random_state=42)
+                tuned_model, best_params, best_val_score = tuner.tune(x_train_scaled, y_train)
+            else:
+                tuner = NeuralNetworkTuner(random_state=42)
+                tuned_model, best_params, best_val_score = tuner.tune(x_train_scaled, y_train)
+
+            logger.info(f"Evaluando modelo tuned ({tuned_name}) sobre el set de test...")
+            metrics_tuned = _log_and_save_model(
+                run_name=tuned_name,
+                model_key=key,
+                version_tag="tuned",
+                model=tuned_model,
+                x_test=x_test_scaled,
+                y_test=y_test,
+                evaluator=evaluator,
+                models_dir=models_dir,
+                scaler=scaler,
+            )
+            results[tuned_name] = metrics_tuned
+            saved_paths[tuned_name] = models_dir / f"model_{key}_tuned.pkl"
 
     evaluator.compare()
 
@@ -162,12 +197,12 @@ def main(
     evaluator.plot_confusion_matrices(str(figures_path))
     logger.info(f"Matrices de confusión (comparativa) guardadas en: {figures_path}")
 
-    best_key = max(results, key=lambda k: results[k]["f1_score"])
-    best_model_path = models_dir / f"model_{best_key}.pkl"
-    model_path.write_bytes(best_model_path.read_bytes())
+    best_run_name = max(results, key=lambda k: results[k]["f1_score"])
+    best_model_source = saved_paths[best_run_name]
+    model_path.write_bytes(best_model_source.read_bytes())
     logger.success(
-        f"Mejor modelo por F1-score: '{best_key}' "
-        f"(f1={results[best_key]['f1_score']:.4f}) -> copiado a {model_path}"
+        f"Mejor modelo global por F1-score: '{best_run_name}' "
+        f"(f1={results[best_run_name]['f1_score']:.4f}) -> copiado a {model_path}"
     )
     logger.info(f"Revisa 'mlflow ui --backend-store-uri {tracking_uri}' para ver los runs.")
 
