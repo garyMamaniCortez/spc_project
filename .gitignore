@@ -4,13 +4,24 @@
 !/data/**/*.dvc
 !/data/**/.gitkeep
 
-# Mlflow
+# Mlflow & artifacts
 /mlruns
 mlflow.db
+C*/
+C:*/
 
-# Models
-models/
-!/models/**/.gitkeep
+# Models (binarios generados por el pipeline)
+models/*
+!models/.gitkeep
+*.pkl
+*.keras
+*.ubj
+
+# Reports & Metrics generados en cada corrida
+reports/plots.csv
+reports/metrics.json
+reports/figures/*.png
+!reports/figures/.gitkeep
 
 # Mac OS-specific storage files
 .DS_Store

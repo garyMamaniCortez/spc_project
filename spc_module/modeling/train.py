@@ -123,8 +123,7 @@ def main(
     experiment_name: str = MLFLOW_EXPERIMENT_NAME,
     tracking_uri: str = MLFLOW_TRACKING_URI,
 ):
-<<<<<<< HEAD
-    """Entrena, evalúa y registra en MLflow todos los modelos configurados."""
+    """Entrena modelos baseline y tuned, los evalúa en test y los registra en MLflow."""
     # Cargar parámetros desde params.yaml si existe
     params_file = PROJ_ROOT / "params.yaml"
     params_cfg = {}
@@ -136,9 +135,6 @@ def main(
     if "models" in train_cfg:
         models = train_cfg["models"]
 
-=======
-    """Entrena modelos baseline y tuned, los evalúa en test y los registra en MLflow."""
->>>>>>> c376d45d74f4786f70e68523b4dc8e2c2280ba10
     model_keys = [m.strip() for m in models.split(",") if m.strip()]
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
@@ -160,31 +156,20 @@ def main(
     models_dir.mkdir(parents=True, exist_ok=True)
 
     results: dict[str, dict] = {}
-<<<<<<< HEAD
     trained_models: dict[str, BaseModel] = {}
-=======
     saved_paths: dict[str, Path] = {}
 
->>>>>>> c376d45d74f4786f70e68523b4dc8e2c2280ba10
     for key in model_keys:
         # 1. ENTRENAR Y LOGUEAR BASELINE
         baseline_name = f"{'XGBoost' if key == 'xgboost' else 'Red Neuronal (MLP)'} (Baseline)"
         logger.info(f"Entrenando baseline: {baseline_name}...")
         model_cls = MODEL_REGISTRY[key]
-<<<<<<< HEAD
         model_kwargs = train_cfg.get(key, {})
         try:
-            model_instance = model_cls(**model_kwargs)
+            baseline_model = model_cls(**model_kwargs)
         except Exception:
-            model_instance = model_cls()
+            baseline_model = model_cls()
 
-        metrics = _train_and_log_model(
-            key=key,
-            model=model_instance,
-            x_train=x_train_scaled,
-            y_train=y_train,
-=======
-        baseline_model = model_cls()
         baseline_model.fit(x_train_scaled, y_train)
 
         metrics_baseline = _log_and_save_model(
@@ -192,18 +177,14 @@ def main(
             model_key=key,
             version_tag="baseline",
             model=baseline_model,
->>>>>>> c376d45d74f4786f70e68523b4dc8e2c2280ba10
             x_test=x_test_scaled,
             y_test=y_test,
             evaluator=evaluator,
             models_dir=models_dir,
             scaler=scaler,
         )
-<<<<<<< HEAD
-        results[key] = metrics
-        trained_models[key] = model_instance
-=======
         results[baseline_name] = metrics_baseline
+        trained_models[baseline_name] = baseline_model
         saved_paths[baseline_name] = models_dir / f"model_{key}_baseline.pkl"
 
         # 2. TUNING DE HIPERPARÁMETROS
@@ -230,8 +211,8 @@ def main(
                 scaler=scaler,
             )
             results[tuned_name] = metrics_tuned
+            trained_models[tuned_name] = tuned_model
             saved_paths[tuned_name] = models_dir / f"model_{key}_tuned.pkl"
->>>>>>> c376d45d74f4786f70e68523b4dc8e2c2280ba10
 
     evaluator.compare()
 
@@ -263,7 +244,7 @@ def main(
     logger.info(f"Métricas para DVC guardadas en: {metrics_file}")
 
     # --- Guardar predicciones en CSV para gráficos DVC ---
-    best_model = trained_models[best_key]
+    best_model = trained_models[best_run_name]
     preds = best_model.predict(x_test_scaled)
     plots_df = pd.DataFrame({"actual": y_test.values, "predicted": preds})
     plots_file = REPORTS_DIR / "plots.csv"
