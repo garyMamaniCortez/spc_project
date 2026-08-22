@@ -11,14 +11,17 @@ use después.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import pickle
 import tempfile
+import yaml
 
 from loguru import logger
 import mlflow
 import mlflow.tensorflow
 import mlflow.xgboost
+import pandas as pd
 import typer
 
 from spc_module.config import (
@@ -27,6 +30,7 @@ from spc_module.config import (
     MODELS_DIR,
     NUMERICAL_COLUMNS,
     PROCESSED_DATA_DIR,
+    PROJ_ROOT,
     REPORTS_DIR,
 )
 from spc_module.eda.loader import CSVDataLoader
@@ -120,6 +124,17 @@ def main(
     tracking_uri: str = MLFLOW_TRACKING_URI,
 ):
     """Entrena, evalúa y registra en MLflow todos los modelos configurados."""
+    # Cargar parámetros desde params.yaml si existe
+    params_file = PROJ_ROOT / "params.yaml"
+    params_cfg = {}
+    if params_file.exists():
+        with open(params_file, "r", encoding="utf-8") as f:
+            params_cfg = yaml.safe_load(f) or {}
+
+    train_cfg = params_cfg.get("train", {})
+    if "models" in train_cfg:
+        models = train_cfg["models"]
+
     model_keys = [m.strip() for m in models.split(",") if m.strip()]
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
@@ -141,11 +156,18 @@ def main(
     models_dir.mkdir(parents=True, exist_ok=True)
 
     results: dict[str, dict] = {}
+    trained_models: dict[str, BaseModel] = {}
     for key in model_keys:
         model_cls = MODEL_REGISTRY[key]
+        model_kwargs = train_cfg.get(key, {})
+        try:
+            model_instance = model_cls(**model_kwargs)
+        except Exception:
+            model_instance = model_cls()
+
         metrics = _train_and_log_model(
             key=key,
-            model=model_cls(),
+            model=model_instance,
             x_train=x_train_scaled,
             y_train=y_train,
             x_test=x_test_scaled,
@@ -155,6 +177,7 @@ def main(
             scaler=scaler,
         )
         results[key] = metrics
+        trained_models[key] = model_instance
 
     evaluator.compare()
 
@@ -169,6 +192,30 @@ def main(
         f"Mejor modelo por F1-score: '{best_key}' "
         f"(f1={results[best_key]['f1_score']:.4f}) -> copiado a {model_path}"
     )
+
+    # --- Guardar métricas en JSON para DVC ---
+    metrics_file = REPORTS_DIR / "metrics.json"
+    metrics_file.parent.mkdir(parents=True, exist_ok=True)
+    formatted_metrics = {}
+    for m_name, m_vals in results.items():
+        formatted_metrics[m_name] = {
+            "accuracy": float(m_vals["accuracy"]),
+            "precision": float(m_vals["precision"]),
+            "recall": float(m_vals["recall"]),
+            "f1_score": float(m_vals["f1_score"]),
+        }
+    with open(metrics_file, "w", encoding="utf-8") as f:
+        json.dump(formatted_metrics, f, indent=4)
+    logger.info(f"Métricas para DVC guardadas en: {metrics_file}")
+
+    # --- Guardar predicciones en CSV para gráficos DVC ---
+    best_model = trained_models[best_key]
+    preds = best_model.predict(x_test_scaled)
+    plots_df = pd.DataFrame({"actual": y_test.values, "predicted": preds})
+    plots_file = REPORTS_DIR / "plots.csv"
+    plots_df.to_csv(plots_file, index=False)
+    logger.info(f"Predicciones para gráficos DVC guardadas en: {plots_file}")
+
     logger.info(f"Revisa 'mlflow ui --backend-store-uri {tracking_uri}' para ver los runs.")
 
 

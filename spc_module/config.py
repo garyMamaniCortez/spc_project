@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -42,8 +43,9 @@ NUMERICAL_COLUMNS = ["age", "education-num", "capital-gain", "capital-loss", "ho
 # --- MLflow experiment tracking ---
 # MLflow 3.x deprecated the plain filesystem backend ("file:./mlruns");
 # a local SQLite database is now the recommended lightweight backend.
-MLFLOW_TRACKING_URI = f"sqlite:///{(PROJ_ROOT / 'mlflow.db').as_posix()}"
-MLFLOW_EXPERIMENT_NAME = "salary-classification"
+DEFAULT_SQLITE_URI = f"sqlite:///{(PROJ_ROOT / 'mlflow.db').as_posix()}"
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", DEFAULT_SQLITE_URI)
+MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "salary-classification")
 
 # If tqdm is installed, configure loguru with tqdm.write
 # https://github.com/Delgan/loguru/issues/135

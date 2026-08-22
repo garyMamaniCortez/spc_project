@@ -1,4 +1,5 @@
 [core]
     remote = gdrive_remote
 ['remote "gdrive_remote"']
-    url = gdrive://15Cr7Ru_-oGrf_Yjdp5pyBQihUq_Aq4wR
+    url = gdrive://1XME9ChaGD2nsr38NhLzoZte2zD8MhLs6
+    gdrive_user_credentials_file = .dvc/tmp/gdrive_credentials.json

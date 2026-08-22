@@ -134,5 +134,23 @@ python spc_module/modeling/predict.py    # predice con el mejor modelo (models/m
 - Al final, `train.py` compara los modelos por F1-score y copia el mejor a
   `models/model.pkl`, que es el que usa `predict.py` por defecto.
 
+## 🐳 Ejecución con Docker
+
+El proyecto cuenta con un entorno Docker completamente autocontenido:
+
+1. **Obtener el dataset en tu máquina (Host):**
+   ```bash
+   dvc pull
+   ```
+   *(Si no tienes DVC instalado: `pip install dvc dvc-gdrive` y luego `dvc pull`)*.
+
+2. **Ejecutar el contenedor:**
+   ```bash
+   docker compose up
+   ```
+   Esto ejecutará automáticamente la limpieza de datos, la construcción de la tabla minable, el entrenamiento de modelos y levantará la UI de MLflow en **[http://localhost:8080](http://localhost:8080)**.
+
+Para más detalles, consulta [DOCKER.md](file:///c:/Users/Erick%20Quiroz/Documents/Diplomado/spc_project/DOCKER.md) y [DVC_GUIA_RAPIDA.txt](file:///c:/Users/Erick%20Quiroz/Documents/Diplomado/spc_project/DVC_GUIA_RAPIDA.txt).
+
 --------
 
