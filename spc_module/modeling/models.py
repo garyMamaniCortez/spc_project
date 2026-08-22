@@ -226,15 +226,36 @@ class XGBoostModel(BaseModel):
         learning_rate: float = 0.1,
         subsample: float = 0.9,
         colsample_bytree: float = 0.9,
+        min_child_weight: int = 1,
+        gamma: float = 0.0,
+        reg_alpha: float = 0.0,
+        reg_lambda: float = 1.0,
+        scale_pos_weight: float = 1.0,
         random_state: int = 42,
     ):
         super().__init__()
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.learning_rate = learning_rate
+        self.subsample = subsample
+        self.colsample_bytree = colsample_bytree
+        self.min_child_weight = min_child_weight
+        self.gamma = gamma
+        self.reg_alpha = reg_alpha
+        self.reg_lambda = reg_lambda
+        self.scale_pos_weight = scale_pos_weight
+        self.random_state = random_state
         self.model = XGBClassifier(
             n_estimators=n_estimators,
             max_depth=max_depth,
             learning_rate=learning_rate,
             subsample=subsample,
             colsample_bytree=colsample_bytree,
+            min_child_weight=min_child_weight,
+            gamma=gamma,
+            reg_alpha=reg_alpha,
+            reg_lambda=reg_lambda,
+            scale_pos_weight=scale_pos_weight,
             random_state=random_state,
             eval_metric="logloss",
             n_jobs=-1,
@@ -250,3 +271,4 @@ class XGBoostModel(BaseModel):
 
     def get_params(self) -> dict:
         return self.model.get_params()
+
