@@ -6,6 +6,8 @@ Responsibilities are split into small, single-purpose modules (SRP):
   value imputation and duplicate removal.
 - :mod:`spc_module.preprocessing.encoding` — categorical one-hot
   encoding and target binarization.
+- :mod:`spc_module.preprocessing.scaling` — standardization of the
+  continuous numeric columns only (never the one-hot dummies).
 - :mod:`spc_module.preprocessing.splitting` — train/test split.
 - :mod:`spc_module.preprocessing.builder` — orchestrates the above via
   dependency injection to produce the final mineable table.

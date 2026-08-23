@@ -11,6 +11,7 @@ result into train/test sets, persisting everything under
 from __future__ import annotations
 
 from pathlib import Path
+import yaml
 
 from loguru import logger
 import typer
@@ -19,6 +20,7 @@ from spc_module.config import (
     INTERIM_DATA_DIR,
     POSITIVE_LABEL,
     PROCESSED_DATA_DIR,
+    PROJ_ROOT,
     TARGET_COLUMN,
 )
 from spc_module.eda.loader import CSVDataLoader
@@ -45,6 +47,18 @@ def main(
 ) -> None:
     """Generate the mineable table and its train/test split."""
     logger.info("Generando la tabla minable (one-hot encoding + target binario)...")
+
+    params_file = PROJ_ROOT / "params.yaml"
+    if params_file.exists():
+        with open(params_file, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        feat_cfg = cfg.get("features", {})
+        if "test_size" in feat_cfg:
+            test_size = float(feat_cfg["test_size"])
+        if "random_state" in feat_cfg:
+            random_state = int(feat_cfg["random_state"])
+        if "drop_first" in feat_cfg:
+            drop_first = bool(feat_cfg["drop_first"])
 
     # El archivo interim ya fue limpiado por dataset.py: no se vuelve a
     # tratar "?" como NaN aquí (na_values vacío) y la CleaningPipeline
