@@ -7,11 +7,11 @@ Responsable de medir el desempeño de los modelos y compararlos entre sí.
 import matplotlib.pyplot as plt
 from sklearn.metrics import (
     accuracy_score,
+    classification_report,
+    confusion_matrix,
+    f1_score,
     precision_score,
     recall_score,
-    f1_score,
-    confusion_matrix,
-    classification_report,
 )
 
 
@@ -62,24 +62,40 @@ class Evaluator:
         """Genera y guarda una imagen con las matrices de confusión de
         todos los modelos evaluados, una al lado de la otra."""
         n = len(self.results)
-        fig, axes = plt.subplots(1, n, figsize=(6 * n, 5))
+        _fig, axes = plt.subplots(1, n, figsize=(6 * n, 5))
         if n == 1:
             axes = [axes]
 
         for ax, (name, m) in zip(axes, self.results.items()):
-            cm = m["confusion_matrix"]
-            ax.imshow(cm, cmap="Blues")
-            ax.set_title(name)
-            ax.set_xlabel("Predicho")
-            ax.set_ylabel("Real")
-            ax.set_xticks([0, 1])
-            ax.set_yticks([0, 1])
-            ax.set_xticklabels(["<=50K", ">50K"])
-            ax.set_yticklabels(["<=50K", ">50K"])
-            for i in range(cm.shape[0]):
-                for j in range(cm.shape[1]):
-                    ax.text(j, i, str(cm[i, j]), ha="center", va="center", color="black")
+            self._draw_confusion_matrix(ax, name, m["confusion_matrix"])
 
         plt.tight_layout()
         plt.savefig(output_path, dpi=150)
         plt.close()
+
+    def plot_single_confusion_matrix(self, model_name: str, output_path: str) -> None:
+        """Genera y guarda la matriz de confusión de un único modelo.
+
+        Útil para adjuntarla como artifact en su propio run de MLflow,
+        separado de la figura comparativa de ``plot_confusion_matrices``.
+        """
+        _fig, ax = plt.subplots(figsize=(5, 5))
+        self._draw_confusion_matrix(ax, model_name, self.results[model_name]["confusion_matrix"])
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150)
+        plt.close()
+
+    @staticmethod
+    def _draw_confusion_matrix(ax, name: str, cm) -> None:
+        """Dibuja una única matriz de confusión sobre un ``Axes`` dado."""
+        ax.imshow(cm, cmap="Blues")
+        ax.set_title(name)
+        ax.set_xlabel("Predicho")
+        ax.set_ylabel("Real")
+        ax.set_xticks([0, 1])
+        ax.set_yticks([0, 1])
+        ax.set_xticklabels(["<=50K", ">50K"])
+        ax.set_yticklabels(["<=50K", ">50K"])
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                ax.text(j, i, str(cm[i, j]), ha="center", va="center", color="black")

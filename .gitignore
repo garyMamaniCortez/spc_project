@@ -4,6 +4,25 @@
 !/data/**/*.dvc
 !/data/**/.gitkeep
 
+# Mlflow & artifacts
+/mlruns
+mlflow.db
+C*/
+C:*/
+
+# Models (binarios generados por el pipeline)
+models/*
+!models/.gitkeep
+*.pkl
+*.keras
+*.ubj
+
+# Reports & Metrics generados en cada corrida
+reports/plots.csv
+reports/metrics.json
+reports/figures/*.png
+!reports/figures/.gitkeep
+
 # Mac OS-specific storage files
 .DS_Store
 
@@ -149,6 +168,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -192,3 +213,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+#Data
+data/raw/salary.csv
