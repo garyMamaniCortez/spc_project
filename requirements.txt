@@ -13,10 +13,5 @@ tabulate
 tqdm
 typer
 mlflow
-xgboost
-tensorflow
 dvc
-dvc-gdrive
-pyOpenSSL==24.2.1
-PyYAML
 -e .
