@@ -12,6 +12,7 @@ y guarda los modelos en disco para que ``predict.py`` los use después.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import pickle
@@ -52,6 +53,14 @@ def _loggable_params(params: dict) -> dict[str, str]:
     """Convierte hiperparámetros a un formato seguro para ``mlflow.log_params``."""
     return {k: str(v) for k, v in params.items() if v is not None}
 
+def _dataset_digest(path: Path) -> str:
+    """Calcula un hash SHA-256 del dataset para identificar la versión utilizada."""
+    sha256 = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
 
 def _log_and_save_model(
     run_name: str,
@@ -63,12 +72,22 @@ def _log_and_save_model(
     evaluator: Evaluator,
     models_dir: Path,
     scaler: StandardNumericalScaler,
+    dataset_name: str,
+    dataset_digest: str,
+    mlflow_dataset,
 ) -> dict:
     """Evalúa un modelo previamente entrenado, guarda sus métricas/artefactos y lo registra en MLflow."""
     with mlflow.start_run(run_name=run_name):
         mlflow.set_tag("model_key", model_key)
         mlflow.set_tag("version", version_tag)
+        mlflow.set_tag("dataset_name", dataset_name)
+        mlflow.set_tag("dataset_sha256", dataset_digest)
         mlflow.log_params(_loggable_params(model.get_params()))
+
+        mlflow.log_input(
+            mlflow_dataset,
+            context="training",
+        )
 
         y_pred = model.predict(x_test)
         metrics = evaluator.evaluate(run_name, y_test, y_pred)
@@ -146,6 +165,21 @@ def main(
     x_test = CSVDataLoader(test_features_path).load()
     y_test = CSVDataLoader(test_labels_path).load().iloc[:, 0]
 
+    raw_dataset_path = PROJ_ROOT / "data" / "raw" / "salary.csv"
+    dataset_name = raw_dataset_path.name
+    dataset_digest = _dataset_digest(raw_dataset_path)
+
+    dataset_df = pd.read_csv(raw_dataset_path)
+    mlflow_dataset = mlflow.data.from_pandas(
+        dataset_df,
+        source=str(raw_dataset_path),
+        name=dataset_name,
+    )
+
+    logger.info(
+        f"Dataset utilizado: {dataset_name} | SHA-256: {dataset_digest}"
+    )
+
     # --- Escalado correcto: SOLO columnas numéricas continuas ---
     scaler = StandardNumericalScaler(columns=NUMERICAL_COLUMNS)
     x_train_scaled = scaler.fit_transform(x_train)
@@ -182,6 +216,9 @@ def main(
             evaluator=evaluator,
             models_dir=models_dir,
             scaler=scaler,
+            dataset_name=dataset_name,
+            dataset_digest=dataset_digest,
+            mlflow_dataset=mlflow_dataset,
         )
         results[baseline_name] = metrics_baseline
         trained_models[baseline_name] = baseline_model
@@ -209,6 +246,9 @@ def main(
                 evaluator=evaluator,
                 models_dir=models_dir,
                 scaler=scaler,
+                dataset_name=dataset_name,
+                dataset_digest=dataset_digest,
+                mlflow_dataset=mlflow_dataset,
             )
             results[tuned_name] = metrics_tuned
             trained_models[tuned_name] = tuned_model
