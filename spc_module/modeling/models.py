@@ -82,6 +82,7 @@ class NeuralNetworkModel(BaseModel):
         early_stopping: bool = True,
         n_iter_no_change: int = 15,
         validation_split: float = 0.2,
+        pos_weight: float = 1.0,
         random_state: int = 42,
     ):
         super().__init__()
@@ -95,6 +96,7 @@ class NeuralNetworkModel(BaseModel):
         self.early_stopping = early_stopping
         self.n_iter_no_change = n_iter_no_change
         self.validation_split = validation_split
+        self.pos_weight = pos_weight
         self.random_state = random_state
         self.history_ = None
 
@@ -135,12 +137,15 @@ class NeuralNetworkModel(BaseModel):
                 )
             )
  
+        class_weight = {0: 1.0, 1: float(self.pos_weight)} if self.pos_weight != 1.0 else None
+
         self.history_ = self.model.fit(
             x_array,
             y_array,
             epochs=self.max_iter,
             batch_size=self.batch_size,
             validation_split=self.validation_split if self.early_stopping else 0.0,
+            class_weight=class_weight,
             callbacks=callbacks,
             verbose=0,
         )
@@ -164,6 +169,7 @@ class NeuralNetworkModel(BaseModel):
             "early_stopping": self.early_stopping,
             "n_iter_no_change": self.n_iter_no_change,
             "validation_split": self.validation_split,
+            "pos_weight": self.pos_weight,
             "random_state": self.random_state,
         }
     

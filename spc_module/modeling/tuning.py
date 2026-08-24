@@ -13,16 +13,29 @@ Responsabilidades:
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import itertools
 import numpy as np
 from loguru import logger
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.metrics import f1_score
 
-from spc_module.modeling.models import NeuralNetworkModel, XGBoostModel
+from spc_module.modeling.models import BaseModel, NeuralNetworkModel, XGBoostModel
 
 
-class XGBoostTuner:
+class BaseTuner(ABC):
+    """Clase base abstracta para los tuners de hiperparámetros.
+
+    Establece el contrato e interfaz unificada que todo tuner del proyecto debe implementar.
+    """
+
+    @abstractmethod
+    def tune(self, x_train, y_train) -> tuple[BaseModel, dict, float]:
+        """Ejecuta la búsqueda y optimización de hiperparámetros sobre el conjunto de entrenamiento."""
+        pass
+
+
+class XGBoostTuner(BaseTuner):
     """Tuning de hiperparámetros para XGBoost usando RandomizedSearchCV."""
 
     def __init__(
@@ -102,7 +115,7 @@ class XGBoostTuner:
         return best_model, self.best_params_, self.best_score_
 
 
-class NeuralNetworkTuner:
+class NeuralNetworkTuner(BaseTuner):
     """Tuning modular de hiperparámetros para la Red Neuronal (MLP)."""
 
     def __init__(
@@ -112,9 +125,16 @@ class NeuralNetworkTuner:
     ):
         if param_grid is None:
             param_grid = {
-                "hidden_layer_sizes": [(256, 128, 64, 32), (128, 64, 32), (256, 128)],
+                "hidden_layer_sizes": [
+                    (512, 256),
+                    (256, 128),
+                    (256, 128, 64),
+                    (128, 64),
+                ],
                 "learning_rate_init": [1e-4, 5e-4],
-                "dropout_rate": [0.2, 0.4],
+                "dropout_rate": [0.1, 0.2, 0.3, 0.4],
+                "l2_reg": [1e-5, 1e-4],
+                "pos_weight": [1.0, 1.5, 2.0],
                 "batch_size": [32, 64],
             }
         self.param_grid = param_grid
@@ -138,13 +158,13 @@ class NeuralNetworkTuner:
         keys, values = zip(*self.param_grid.items())
         combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
         
-        # Para mantener el tiempo de ejecución acotado, tomamos como máximo 6 configuraciones
-        if len(combinations) > 6:
+        # Evaluamos hasta 8 configuraciones candidatas para explorar mejor el espacio
+        if len(combinations) > 8:
             rng = np.random.default_rng(self.random_state)
-            sampled_indices = rng.choice(len(combinations), size=6, replace=False)
+            sampled_indices = rng.choice(len(combinations), size=8, replace=False)
             combinations = [combinations[i] for i in sampled_indices]
 
-        logger.info(f"Iniciando tuning de Red Neuronal sobre {len(combinations)} configuraciones candidatas...")
+        logger.info(f"Iniciando tuning avanzado de Red Neuronal sobre {len(combinations)} configuraciones candidatas...")
 
         best_val_f1 = -1.0
         best_config = combinations[0]
@@ -162,6 +182,8 @@ class NeuralNetworkTuner:
                 hidden_layer_sizes=config["hidden_layer_sizes"],
                 learning_rate_init=config["learning_rate_init"],
                 dropout_rate=config["dropout_rate"],
+                l2_reg=config.get("l2_reg", 1e-4),
+                pos_weight=config.get("pos_weight", 1.0),
                 batch_size=config["batch_size"],
                 early_stopping=True,
                 n_iter_no_change=10,
@@ -189,6 +211,8 @@ class NeuralNetworkTuner:
             hidden_layer_sizes=best_config["hidden_layer_sizes"],
             learning_rate_init=best_config["learning_rate_init"],
             dropout_rate=best_config["dropout_rate"],
+            l2_reg=best_config.get("l2_reg", 1e-4),
+            pos_weight=best_config.get("pos_weight", 1.0),
             batch_size=best_config["batch_size"],
             early_stopping=True,
             n_iter_no_change=15,
