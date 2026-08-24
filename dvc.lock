@@ -90,12 +90,12 @@ stages:
       size: 3932
     - path: spc_module/modeling/models.py
       hash: md5
-      md5: 7ef33e5ade7a29cad66ddb3d8a3eb779
-      size: 8866
+      md5: 36c0f7e4c1d80887dbf9de670d75dbbd
+      size: 9684
     - path: spc_module/modeling/train.py
       hash: md5
-      md5: 3e22d9d6c7d157507821dffa0b979728
-      size: 8126
+      md5: ae08a9ddf263d839c9397d77818f6634
+      size: 11316
     params:
       params.yaml:
         train.mlp.dropout_rate: 0.4
@@ -107,13 +107,13 @@ stages:
     outs:
     - path: models/model.pkl
       hash: md5
-      md5: 3894905ca5847b176e707d9abb71fcfc
-      size: 819392
+      md5: 2077ac174f80f0002f72a6d0c028ca4d
+      size: 511724
     - path: reports/metrics.json
       hash: md5
-      md5: 0978b39d5c16c4bfb58a61a4f4cb3170
-      size: 374
+      md5: b81eba1ee8b3f007d520d813df7bd169
+      size: 810
     - path: reports/plots.csv
       hash: md5
-      md5: 46b27f871d78839daed43d3699501271
+      md5: 2cb16b58db8b03c09b4c243528e78a3e
       size: 28988
