@@ -1,0 +1,41 @@
+services:
+  fastapi:
+    build:
+      context: ./api_service
+      dockerfile: Dockerfile
+    container_name: spc_fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_SERVICE_URL=http://modelos:5000
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      modelos:
+        condition: service_started
+    networks:
+      - spc-network
+    restart: unless-stopped
+
+  modelos:
+    build:
+      context: ./model_service
+      dockerfile: Dockerfile
+    container_name: spc_modelos
+    expose:
+      - "5000"
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./models:/app/models:ro
+      - ./data/processed:/app/data/processed:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MODEL_PATH=/app/models/model.pkl
+      - FEATURES_PATH=/app/data/processed/features.csv
+    networks:
+      - spc-network
+    restart: unless-stopped
+
+networks:
+  spc-network:
+    driver: bridge
