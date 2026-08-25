@@ -18,5 +18,6 @@ tensorflow
 dvc
 dvc-gdrive
 pyOpenSSL==24.2.1
-PyYAML
+fastapi
+uvicorn
 -e .

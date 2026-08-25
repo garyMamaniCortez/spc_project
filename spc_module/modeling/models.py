@@ -48,6 +48,11 @@ class BaseModel(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def predict_proba(self, X_test):
+        """Calcula probabilidades para cada clase [prob_0, prob_1]."""
+        raise NotImplementedError
+
+    @abstractmethod
     def get_params(self) -> dict:
         """Hiperparámetros del modelo (para logging, p. ej. MLflow)."""
         raise NotImplementedError
@@ -156,6 +161,12 @@ class NeuralNetworkModel(BaseModel):
         x_array = np.asarray(X_test, dtype="float32")
         probabilities = self.model.predict(x_array, verbose=0).ravel()
         return (probabilities >= 0.5).astype(int)
+
+    def predict_proba(self, X_test):
+        x_array = np.asarray(X_test, dtype="float32")
+        prob_1 = self.model.predict(x_array, verbose=0).ravel()
+        prob_0 = 1.0 - prob_1
+        return np.column_stack([prob_0, prob_1])
 
     def get_params(self) -> dict:
         return {
@@ -274,6 +285,9 @@ class XGBoostModel(BaseModel):
 
     def predict(self, X_test):
         return self.model.predict(X_test)
+
+    def predict_proba(self, X_test):
+        return self.model.predict_proba(X_test)
 
     def get_params(self) -> dict:
         return self.model.get_params()
