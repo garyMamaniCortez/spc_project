@@ -23,9 +23,17 @@ import tempfile
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # silencia logs de bajo nivel de TF
 
+from typing import TYPE_CHECKING
+
 import numpy as np
-from tensorflow import keras
 from xgboost import XGBClassifier
+
+if TYPE_CHECKING:
+    # Solo se importa para chequeo de tipos (no en tiempo de ejecución).
+    # tensorflow es una dependencia pesada que solo necesita NeuralNetworkModel;
+    # XGBoostModel (el modelo en producción) no debe requerirla para poder
+    # des-picklearse en el contenedor liviano de inferencia (model_service).
+    from tensorflow import keras
 
 
 class BaseModel(ABC):
@@ -105,7 +113,9 @@ class NeuralNetworkModel(BaseModel):
         self.random_state = random_state
         self.history_ = None
 
-    def _build(self, input_dim: int) -> keras.Model:
+    def _build(self, input_dim: int) -> "keras.Model":
+        from tensorflow import keras  # import perezoso: solo se necesita al construir/usar la red neuronal
+
         keras.utils.set_random_seed(self.random_state)
         regularizer = keras.regularizers.l2(self.l2_reg) if self.l2_reg else None
  
@@ -198,7 +208,7 @@ class NeuralNetworkModel(BaseModel):
         self.model = self._keras_model_from_bytes(model_bytes)
  
     @staticmethod
-    def _keras_model_to_bytes(keras_model: keras.Model | None) -> bytes | None:
+    def _keras_model_to_bytes(keras_model: "keras.Model | None") -> bytes | None:
         if keras_model is None:
             return None
         fd, tmp_path = tempfile.mkstemp(suffix=".keras")
@@ -211,9 +221,11 @@ class NeuralNetworkModel(BaseModel):
             os.remove(tmp_path)
  
     @staticmethod
-    def _keras_model_from_bytes(model_bytes: bytes | None) -> keras.Model | None:
+    def _keras_model_from_bytes(model_bytes: bytes | None) -> "keras.Model | None":
         if model_bytes is None:
             return None
+        from tensorflow import keras  # import perezoso: solo se necesita al restaurar la red neuronal
+
         fd, tmp_path = tempfile.mkstemp(suffix=".keras")
         os.close(fd)
         try:

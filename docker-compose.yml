@@ -18,8 +18,8 @@ services:
 
   modelos:
     build:
-      context: ./model_service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: model_service/Dockerfile
     container_name: spc_modelos
     expose:
       - "5000"
