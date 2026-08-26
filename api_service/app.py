@@ -5,16 +5,17 @@ from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 MODEL_SERVICE_URL = os.getenv("MODEL_SERVICE_URL", "http://modelos:5000")
+MODEL_NAME = "Clasificación de Salarios (Adult Census Income)"
 
 app = FastAPI(
     title="API de Clasificación de Salarios (Adult Census Income)",
-    description="Microservicio Gateway de FastAPI que valida solicitudes y se comunica con el contenedor de modelos.",
+    description="Microservicio Gateway de FastAPI que valida solicitudes y se comunica con el contenedor de modelos. Muestra esquemas de Entradas y Salidas en Swagger UI.",
     version="3.0.0",
 )
 
 
 # ==========================================
-# ESQUEMAS DE ENTRADA (Pydantic V2)
+# 1. ESQUEMAS DE ENTRADA (ENTRADAS)
 # ==========================================
 class SalaryFeatures(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -38,7 +39,40 @@ class PredictionRequest(BaseModel):
 
 
 # ==========================================
-# ENDPOINTS
+# 2. ESQUEMAS DE SALIDA (SALIDAS SWAGGER UI)
+# ==========================================
+class ProbabilitiesDetail(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    le_50k: Optional[float] = Field(None, alias="<=50K", description="Probabilidad de ganar <=50K", json_schema_extra={"example": 0.9245})
+    gt_50k: Optional[float] = Field(None, alias=">50K", description="Probabilidad de ganar >50K", json_schema_extra={"example": 0.0755})
+
+
+class PredictionResultItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    index: int = Field(0, description="Índice del registro", json_schema_extra={"example": 0})
+    prediction_code: int = Field(0, description="Código numérico (0: <=50K, 1: >50K)", json_schema_extra={"example": 0})
+    diagnosis: str = Field("<=50K", description="Etiqueta textual del resultado", json_schema_extra={"example": "<=50K"})
+    confidence_score: Optional[float] = Field(None, description="Porcentaje de confianza del modelo", json_schema_extra={"example": 92.45})
+    probabilities_detail: Optional[ProbabilitiesDetail] = Field(None, description="Detalle de probabilidades por clase")
+
+
+class ModelMetadataResponse(BaseModel):
+    name: Optional[str] = Field(MODEL_NAME, description="Nombre del modelo", json_schema_extra={"example": MODEL_NAME})
+    version: Optional[str] = Field("1.0.0", description="Versión del modelo", json_schema_extra={"example": "1.0.0"})
+    run_id: Optional[str] = Field("xgboost_tuned_production", description="Run ID del experimento", json_schema_extra={"example": "xgboost_tuned_production"})
+
+
+class PredictionResponse(BaseModel):
+    model_metadata: ModelMetadataResponse = Field(default_factory=ModelMetadataResponse, description="Metadatos del modelo")
+    total_predictions: int = Field(1, description="Cantidad total de registros evaluados", json_schema_extra={"example": 1})
+    results: List[PredictionResultItem] = Field(default_factory=list, description="Lista de resultados")
+    message: Optional[str] = Field("Inferencia completada con éxito.", description="Mensaje de confirmación", json_schema_extra={"example": "Inferencia completada con éxito."})
+
+
+# ==========================================
+# 3. ENDPOINTS
 # ==========================================
 @app.get("/", tags=["General"])
 async def root():
@@ -73,7 +107,7 @@ async def health_check():
     return {"status": "Degraded", "gateway": "OK", "model_service": "Unavailable"}
 
 
-@app.post("/predict", tags=["Predicción"])
+@app.post("/predict", response_model=PredictionResponse, tags=["Predicción"])
 async def predict(payload: PredictionRequest):
     """Recibe las variables demográficas, las valida y realiza inferencia mediante el servicio de modelos."""
     raw_payload = [item.model_dump(by_alias=True) for item in payload.data]

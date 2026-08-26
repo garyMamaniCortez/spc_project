@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 import pandas as pd
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from model_loader import (
     MODEL_NAME,
@@ -48,6 +48,39 @@ class RawPredictionRequest(BaseModel):
     data: List[Dict[str, Any]]
 
 
+# ==========================================
+# ESQUEMAS DE SALIDA (SALIDAS SWAGGER UI)
+# ==========================================
+class ProbabilitiesDetail(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    le_50k: Optional[float] = Field(None, alias="<=50K", description="Probabilidad de ganar <=50K", json_schema_extra={"example": 0.9245})
+    gt_50k: Optional[float] = Field(None, alias=">50K", description="Probabilidad de ganar >50K", json_schema_extra={"example": 0.0755})
+
+
+class PredictionResultItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    index: int = Field(..., description="Índice del registro", json_schema_extra={"example": 0})
+    prediction_code: int = Field(..., description="Código numérico (0: <=50K, 1: >50K)", json_schema_extra={"example": 0})
+    diagnosis: str = Field(..., description="Etiqueta textual del resultado", json_schema_extra={"example": "<=50K"})
+    confidence_score: Optional[float] = Field(None, description="Porcentaje de confianza del modelo", json_schema_extra={"example": 92.45})
+    probabilities_detail: ProbabilitiesDetail = Field(..., description="Detalle de probabilidades por clase")
+
+
+class ModelMetadataResponse(BaseModel):
+    name: str = Field(..., description="Nombre del modelo", json_schema_extra={"example": MODEL_NAME})
+    version: str = Field(..., description="Versión del modelo", json_schema_extra={"example": "1.0.0"})
+    run_id: str = Field(..., description="Run ID del experimento", json_schema_extra={"example": "xgboost_tuned_production"})
+
+
+class PredictionResponse(BaseModel):
+    model_metadata: ModelMetadataResponse = Field(..., description="Metadatos del modelo")
+    total_predictions: int = Field(..., description="Cantidad total de registros evaluados", json_schema_extra={"example": 1})
+    results: List[PredictionResultItem] = Field(..., description="Lista de resultados")
+    message: str = Field(..., description="Mensaje de confirmación", json_schema_extra={"example": "Inferencia completada desde el servicio de modelos."})
+
+
 def preprocess_input(raw_df: pd.DataFrame, expected_cols: List[str]) -> pd.DataFrame:
     """Aplica One-Hot Encoding a la entrada recibida y alinea las columnas con el dataset de entrenamiento."""
     column_mapping = {
@@ -90,7 +123,7 @@ def health():
     return {"status": "Unhealthy", "model": "Not Loaded"}
 
 
-@app.post("/predict")
+@app.post("/predict", response_model=PredictionResponse)
 def predict(payload: RawPredictionRequest):
     if model_bundle is None or "model" not in model_bundle:
         _initialize_model()
@@ -106,7 +139,7 @@ def predict(payload: RawPredictionRequest):
         processed_df = preprocess_input(raw_df, feature_columns)
 
         scaler = model_bundle["scaler"]
-        X_scaled = scaler.transform(processed_df)
+        X_scaled = scaler.transform(processed_df) if scaler is not None else processed_df
 
         model = model_bundle["model"]
         predictions = model.predict(X_scaled)
@@ -140,7 +173,7 @@ def predict(payload: RawPredictionRequest):
             },
             "total_predictions": len(predictions),
             "results": results,
-            "message": "Inferencia completada con éxito desde el microservicio de modelos.",
+            "message": "Inferencia completada desde el servicio de modelos.",
         }
 
     except Exception as e:

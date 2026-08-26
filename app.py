@@ -26,31 +26,29 @@ def _initialize_model():
     feature_columns = load_feature_columns()
 
     if model_bundle and "model" in model_bundle:
-        print(f"[FastAPI] ¡Modelo v{model_version_info['version']} cargado exitosamente en producción!")
+        print(f"[FastAPI] ¡Modelo v{model_version_info.get('version')} cargado exitosamente en producción!")
     else:
         print("[FastAPI ERROR] El modelo inició en None.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicialización al arrancar
     _initialize_model()
     yield
-    # Limpieza al apagar (si aplica)
 
 
 # ==========================================
-# 1. INICIALIZACIÓN DE FASTAPI
+# 1. INICIALIZACIÓN DE FASTAPI Y SWAGGER UI
 # ==========================================
 app = FastAPI(
     title="API de Clasificación de Salarios (Adult Census Income)",
-    description="API MLOps robusta con arquitectura modular para predecir si un individuo gana <=50K o >50K.",
-    version="2.5.0",
+    description="API MLOps robusta con arquitectura modular. Muestra esquemas completos de Entradas (Request) y Salidas (Response) en Swagger UI.",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
 # ==========================================
-# 2. ESQUEMAS DE ENTRADA (Pydantic V2)
+# 2. ESQUEMAS DE ENTRADA (ENTRADAS)
 # ==========================================
 class SalaryFeatures(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -74,7 +72,40 @@ class PredictionRequest(BaseModel):
 
 
 # ==========================================
-# 3. HELPER PREPROCESAMIENTO DE ENTRADA
+# 3. ESQUEMAS DE SALIDA (SALIDAS SWAGGER UI)
+# ==========================================
+class ProbabilitiesDetail(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    le_50k: Optional[float] = Field(None, alias="<=50K", description="Probabilidad de ganar <=50K", json_schema_extra={"example": 0.9245})
+    gt_50k: Optional[float] = Field(None, alias=">50K", description="Probabilidad de ganar >50K", json_schema_extra={"example": 0.0755})
+
+
+class PredictionResultItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    index: int = Field(0, description="Índice del registro", json_schema_extra={"example": 0})
+    prediction_code: int = Field(0, description="Código numérico (0: <=50K, 1: >50K)", json_schema_extra={"example": 0})
+    diagnosis: str = Field("<=50K", description="Etiqueta textual del resultado de la inferencia", json_schema_extra={"example": "<=50K"})
+    confidence_score: Optional[float] = Field(None, description="Porcentaje de confianza del modelo", json_schema_extra={"example": 92.45})
+    probabilities_detail: Optional[ProbabilitiesDetail] = Field(None, description="Detalle de probabilidades por clase")
+
+
+class ModelMetadataResponse(BaseModel):
+    name: Optional[str] = Field(MODEL_NAME, description="Nombre del modelo", json_schema_extra={"example": MODEL_NAME})
+    version: Optional[str] = Field("1.0.0", description="Versión del modelo", json_schema_extra={"example": "1.0.0"})
+    run_id: Optional[str] = Field("xgboost_tuned_production", description="Run ID único del experimento", json_schema_extra={"example": "xgboost_tuned_production"})
+
+
+class PredictionResponse(BaseModel):
+    model_metadata: ModelMetadataResponse = Field(default_factory=ModelMetadataResponse, description="Metadatos del modelo utilizado")
+    total_predictions: int = Field(1, description="Cantidad total de registros evaluados", json_schema_extra={"example": 1})
+    results: List[PredictionResultItem] = Field(default_factory=list, description="Lista de resultados detallados")
+    message: Optional[str] = Field("Inferencia completada con éxito.", description="Mensaje de confirmación", json_schema_extra={"example": "Inferencia completada con éxito."})
+
+
+# ==========================================
+# 4. HELPER PREPROCESAMIENTO DE ENTRADA
 # ==========================================
 def preprocess_input(raw_df: pd.DataFrame, expected_cols: List[str]) -> pd.DataFrame:
     """Aplica One-Hot Encoding a la entrada recibida y alinea las columnas con el dataset de entrenamiento."""
@@ -97,22 +128,21 @@ def preprocess_input(raw_df: pd.DataFrame, expected_cols: List[str]) -> pd.DataF
 
 
 # ==========================================
-# 4. ENDPOINTS
+# 5. ENDPOINTS
 # ==========================================
-@app.get("/")
+@app.get("/", tags=["General"])
 def read_root():
     return {
         "status": "Online",
         "model_name": MODEL_NAME,
-        "production_version": model_version_info["version"],
-        "run_id": model_version_info["run_id"],
+        "production_version": model_version_info.get("version", "1.0.0"),
+        "run_id": model_version_info.get("run_id", "xgboost_tuned_production"),
     }
 
 
-@app.post("/predict")
+@app.post("/predict", response_model=PredictionResponse, tags=["Predicción"])
 def predict(payload: PredictionRequest):
     if model_bundle is None or "model" not in model_bundle:
-        # Fallback de inicialización si es llamado sin lifespan (ej. algunas pruebas)
         _initialize_model()
 
     if model_bundle is None or "model" not in model_bundle:
@@ -128,7 +158,7 @@ def predict(payload: PredictionRequest):
         processed_df = preprocess_input(raw_df, feature_columns)
 
         scaler = model_bundle["scaler"]
-        X_scaled = scaler.transform(processed_df)
+        X_scaled = scaler.transform(processed_df) if scaler is not None else processed_df
 
         model = model_bundle["model"]
         predictions = model.predict(X_scaled)
@@ -157,8 +187,8 @@ def predict(payload: PredictionRequest):
         return {
             "model_metadata": {
                 "name": MODEL_NAME,
-                "version": model_version_info["version"],
-                "run_id": model_version_info["run_id"],
+                "version": model_version_info.get("version", "1.0.0"),
+                "run_id": model_version_info.get("run_id", "xgboost_tuned_production"),
             },
             "total_predictions": len(predictions),
             "results": results,
