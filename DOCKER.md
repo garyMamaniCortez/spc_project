@@ -102,7 +102,12 @@ curl -X POST "http://localhost:8000/predict" \
 
 ## 🛑 Detener los Contenedores
 
-Presiona `Ctrl + C` en tu terminal o ejecuta:
-```bash
-docker compose down
-```
+* **Detención rápida (primer plano):** Presiona `Ctrl + C` en la terminal activa.
+* **Detener y remover contenedores y red:**
+  ```bash
+  docker compose down
+  ```
+* **Limpieza completa (removiendo volúmenes asociados):**
+  ```bash
+  docker compose down -v
+  ```
