@@ -151,7 +151,7 @@ El proyecto cuenta con un entorno Docker completamente autocontenido:
    ```
    Esto ejecutará automáticamente la limpieza de datos, la construcción de la tabla minable, el entrenamiento de modelos y levantará la UI de MLflow en **[http://localhost:8080](http://localhost:8080)**.
 
-Para más detalles, consulta [DOCKER.md](file:///c:/Users/Erick%20Quiroz/Documents/Diplomado/spc_project/DOCKER.md) y [DVC_GUIA_RAPIDA.txt](file:///c:/Users/Erick%20Quiroz/Documents/Diplomado/spc_project/DVC_GUIA_RAPIDA.txt).
+Para más detalles, consulta [DOCKER.md](DOCKER.md) y [DVC_GUIA_RAPIDA.txt](DVC_GUIA_RAPIDA.txt).
 
 --------
 
