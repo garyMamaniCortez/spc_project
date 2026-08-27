@@ -125,6 +125,7 @@ python spc_module/modeling/predict.py    # predice con el mejor modelo (models/m
   métricas, matriz de confusión y el modelo quedan versionados). El backend
   de tracking es SQLite local (`mlflow.db` en la raíz del proyecto). Para
   explorar los experimentos:
+- **Trazabilidad del dataset:** cada corrida registra en MLflow el nombre del dataset utilizado y su hash SHA, , permitiendo identificar exactamente qué versión de `salary.csv` fue utilizada durante el entrenamiento.
 
   ```bash
   mlflow ui --backend-store-uri sqlite:///mlflow.db
