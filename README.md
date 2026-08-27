@@ -29,6 +29,11 @@ Salary Prediction Clasification project
 │
 ├── docs               <- A default mkdocs project; see www.mkdocs.org for details
 │
+├── models_service     <- FastApi service Folder
+│   ├── app.py         <- FastApi service initializator
+│   ├── Dockerfile     <- Docker configuration file to host FastApi service
+│   └── model_loader.py<- Model Loader for serving request
+│
 ├── models             <- Trained and serialized models, model predictions, or model summaries
 │
 ├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
